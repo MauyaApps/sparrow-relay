@@ -37,7 +37,8 @@ export default {
  * One transfer session = one Session object.
  * - "host" creates the session, "guest" joins it.
  * - Only binary frames are relayed (opaque ciphertext / PAKE messages).
- * - Text frames are sent only by the relay: "peer-joined", "peer-left".
+ * - Text frames are sent only by the relay: "peer-joined", "peer-left",
+ *   "session-ended" (sent right before the relay closes the socket).
  * - Nothing is logged or persisted except expiry time and join counter.
  */
 export class Session extends DurableObject<Env> {
@@ -128,6 +129,8 @@ export class Session extends DurableObject<Env> {
   private async destroy(reason: string): Promise<void> {
     for (const ws of this.ctx.getWebSockets()) {
       try {
+        // Tell the client explicitly, then close. Clients rely on this frame.
+        ws.send("session-ended");
         ws.close(1000, reason);
       } catch {
         /* already closed */
