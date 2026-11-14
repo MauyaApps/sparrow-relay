@@ -69,6 +69,13 @@ test("health", async () => {
   assert.equal(await r.text(), "ok");
 });
 
+test("root serves the info page", async () => {
+  const r = await fetch(`${RELAY}/`);
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get("content-type"), /text\/html/);
+  assert.match(await r.text(), /Sparrow Relay/);
+});
+
 test("unknown path and bad id -> 404", async () => {
   assert.equal((await fetch(`${RELAY}/nope`)).status, 404);
   assert.equal((await fetch(`${RELAY}/v1/session/short`)).status, 404);

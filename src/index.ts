@@ -1,8 +1,20 @@
 import { DurableObject } from "cloudflare:workers";
+import { page } from "./page";
 
 interface Env {
   SESSION: DurableObjectNamespace;
 }
+
+const HTML_HEADERS = {
+  "content-type": "text/html; charset=utf-8",
+  "content-security-policy":
+    "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'",
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+  "cache-control": "no-store",
+};
+const html = (notFound: boolean) =>
+  new Response(page(notFound), { status: notFound ? 404 : 200, headers: HTML_HEADERS });
 
 const ID_RE = /^[A-Za-z0-9_-]{22,64}$/;
 const MAX_MESSAGE_BYTES = 2 * 1024 * 1024; // limit for one encrypted message
@@ -16,9 +28,14 @@ export default {
     const url = new URL(req.url);
 
     if (url.pathname === "/health") return new Response("ok");
+    if (url.pathname === "/") return html(false);
 
     const m = url.pathname.match(/^\/v1\/session\/([^/]+)$/);
-    if (!m || !ID_RE.test(m[1])) return new Response("not found", { status: 404 });
+    if (!m || !ID_RE.test(m[1])) {
+      return req.headers.get("Upgrade") === "websocket"
+        ? new Response("not found", { status: 404 })
+        : html(true);
+    }
 
     if (req.headers.get("Upgrade") !== "websocket") {
       return new Response("websocket required", { status: 426 });
