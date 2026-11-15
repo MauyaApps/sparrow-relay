@@ -6,5 +6,9 @@
   "durable_objects": {
     "bindings": [{ "name": "SESSION", "class_name": "Session" }]
   },
+  "ratelimits": [
+    { "name": "LIMIT_SESSION", "namespace_id": "71101", "simple": { "limit": 120, "period": 60 } },
+    { "name": "LIMIT_CODE", "namespace_id": "71102", "simple": { "limit": 30, "period": 60 } }
+  ],
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Session"] }]
 }

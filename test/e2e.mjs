@@ -11,12 +11,13 @@ const WS_BASE = RELAY.replace(/^http/, "ws");
 const SLOW = process.argv.includes("--slow");
 
 const newId = () => Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString("base64url");
+const newCode = () => String(Math.floor(Math.random() * 1000)).padStart(3, "0");
 const bytes = (...n) => new Uint8Array(n).buffer;
 const isText = (m) => typeof m === "string";
 
-function connect(id, role) {
+function connect(id, role, kind = "session") {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`${WS_BASE}/v1/session/${id}?role=${role}`);
+    const ws = new WebSocket(`${WS_BASE}/v1/${kind}/${id}?role=${role}`);
     ws.binaryType = "arraybuffer";
     const inbox = [];
     const waiters = [];
@@ -160,6 +161,35 @@ test("3 guest attempts allowed, the 4th destroys the session", async () => {
   await assert.rejects(connect(id, "guest"));
   assert.equal(await host.next(), "session-ended");
 });
+
+test("code route: bad formats -> 404", async () => {
+  assert.equal((await fetch(`${RELAY}/v1/code/12`)).status, 404);
+  assert.equal((await fetch(`${RELAY}/v1/code/abcd`)).status, 404);
+});
+
+test("code route: host creates, nameplate is taken, guest joins and exchanges data", async () => {
+  const n = newCode();
+  const host = await connect(n, "host", "code");
+  await assert.rejects(connect(n, "host", "code")); // nameplate already in use
+  await assert.rejects(connect(newCode() === n ? "000" : "999", "guest", "code")); // guest cannot create
+  const guest = await connect(n, "guest", "code");
+  assert.equal(await host.next(), "peer-joined");
+  host.send(bytes(7, 7));
+  assert.deepEqual(new Uint8Array(await guest.next()), new Uint8Array([7, 7]));
+  host.close();
+  assert.equal(await guest.next(), "session-ended");
+});
+
+if (process.argv.includes("--ratelimit")) {
+  // Opt-in: it deliberately trips the limit, so your IP is blocked for ~1 minute afterwards.
+  test("rate limit: too many requests -> 429", async () => {
+    let got429 = false;
+    for (let i = 0; i < 60 && !got429; i++) {
+      got429 = (await fetch(`${RELAY}/v1/code/000`)).status === 429;
+    }
+    assert.ok(got429, "expected a 429");
+  });
+}
 
 if (SLOW) {
   test("session expires after ~2 minutes", async () => {

@@ -3,6 +3,8 @@ import { page } from "./page";
 
 interface Env {
   SESSION: DurableObjectNamespace;
+  LIMIT_SESSION: RateLimit; // per-IP limit for long-id sessions
+  LIMIT_CODE: RateLimit; // stricter per-IP limit for short-code sessions
 }
 
 const HTML_HEADERS = {
@@ -17,6 +19,7 @@ const html = (notFound: boolean) =>
   new Response(page(notFound), { status: notFound ? 404 : 200, headers: HTML_HEADERS });
 
 const ID_RE = /^[A-Za-z0-9_-]{22,64}$/;
+const CODE_RE = /^[0-9]{3}$/; // short session number used by the 7-digit code flow
 const MAX_MESSAGE_BYTES = 2 * 1024 * 1024; // limit for one encrypted message
 const SESSION_TTL_MS = 120_000; // session lives 2 minutes
 const MAX_GUEST_JOINS = 3; // connection attempts by the second device
@@ -30,11 +33,22 @@ export default {
     if (url.pathname === "/health") return new Response("ok");
     if (url.pathname === "/") return html(false);
 
-    const m = url.pathname.match(/^\/v1\/session\/([^/]+)$/);
-    if (!m || !ID_RE.test(m[1])) {
+    const m = url.pathname.match(/^\/v1\/(session|code)\/([^/]+)$/);
+    const kind = m?.[1];
+    const key = m?.[2] ?? "";
+    const valid = kind === "code" ? CODE_RE.test(key) : kind === "session" && ID_RE.test(key);
+    if (!m || !valid) {
       return req.headers.get("Upgrade") === "websocket"
         ? new Response("not found", { status: 404 })
         : html(true);
+    }
+
+    // Per-IP rate limit (counted per Cloudflare location, so approximate).
+    const ip = req.headers.get("cf-connecting-ip") ?? "local";
+    const limiter = kind === "code" ? env.LIMIT_CODE : env.LIMIT_SESSION;
+    const { success } = await limiter.limit({ key: ip });
+    if (!success) {
+      return new Response("too many requests", { status: 429, headers: { "retry-after": "60" } });
     }
 
     if (req.headers.get("Upgrade") !== "websocket") {
@@ -45,7 +59,9 @@ export default {
       return new Response("bad request", { status: 400 });
     }
 
-    const stub = env.SESSION.get(env.SESSION.idFromName(m[1]));
+    // Short codes live in their own namespace ("code:" cannot occur in a long id).
+    const name = kind === "code" ? `code:${key}` : key;
+    const stub = env.SESSION.get(env.SESSION.idFromName(name));
     return stub.fetch(req);
   },
 };

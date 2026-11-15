@@ -46,6 +46,19 @@ Add a SHA-256 of the whole payload in the last chunk and verify it before saving
 - Any decryption failure: stop, show an error, do not retry silently.
 - The relay address list is in the QR. The client tries each address in order.
 
-## 7. Next: code variant (7 digits)
-Short code = relay-issued session number + PAKE secret (CPace or SPAKE2). It needs a relay change:
-the relay issues the short number. After PAKE, both screens show a short check string to compare.
+## 7. Code variant (7 digits)
+Code = `NNNSSSS`: `NNN` is the relay session number, `SSSS` is the PAKE secret.
+1. Host picks a random `NNN`, connects to `/v1/code/<NNN>?role=host`. On HTTP 409 (number in use) it picks another one.
+   Host generates a random `SSSS` and shows the full 7 digits.
+2. Guest types the 7 digits, connects to `/v1/code/<NNN>?role=guest`.
+3. Both run a PAKE (CPace or SPAKE2) with password `SSSS` and identity `sparrow-v1|<NNN>`.
+   PAKE messages are binary frames (type `0x10`, `0x11`). The result is `k`.
+4. Key confirmation: each side sends an HMAC over the PAKE transcript (type `0x12`).
+   On mismatch the host closes the session at once, so an attacker gets one guess per session.
+5. Both screens show a 4-digit check string `HKDF(k, "sparrow/v1/sas")`. The user confirms they match.
+6. Continue with sections 2 to 5, using `k` and `NNN` (as ASCII) instead of `id` for the salt and AAD.
+
+Limits of this variant:
+- `SSSS` has only 10 000 values. One guess per session means about 0.01% chance for a blind attacker, but an attacker can also burn sessions. The relay limits requests per IP (30 per minute per location on the code route).
+- Use the QR variant by default. The code is a fallback when no camera is available.
+- The code lives at most 2 minutes and works once.
