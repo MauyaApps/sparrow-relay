@@ -74,7 +74,10 @@ test("root serves the info page", async () => {
   const r = await fetch(`${RELAY}/`);
   assert.equal(r.status, 200);
   assert.match(r.headers.get("content-type"), /text\/html/);
-  assert.match(await r.text(), /Sparrow Relay/);
+  const body = await r.text();
+  assert.match(body, /Sparrow/);
+  assert.match(body, /data-l="ru"/);
+  assert.match(body, /data-l="en"/);
 });
 
 test("unknown path and bad id -> 404", async () => {
